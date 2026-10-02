@@ -1,0 +1,1 @@
+- allow user to enter their location in multiple formats and have it all parsed to be of the required format for the apis

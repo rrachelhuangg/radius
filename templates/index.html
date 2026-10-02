@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Radius — planes &amp; trains near you</title>
+  <style>
+    :root { color-scheme: light dark; --accent: #2563eb; --muted: #6b7280; --border: #d1d5db55; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 0 auto; padding: 2rem 1rem; line-height: 1.4; }
+    h1 { margin: 0 0 .25rem; }
+    .sub { color: var(--muted); margin: 0 0 1.5rem; }
+    form { display: flex; gap: .5rem; flex-wrap: wrap; }
+    input { flex: 1 1 280px; padding: .65rem .8rem; font-size: 1rem; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: inherit; }
+    button { padding: .65rem 1rem; font-size: 1rem; border: 0; border-radius: 8px; background: var(--accent); color: #fff; cursor: pointer; }
+    button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+    button:disabled { opacity: .6; cursor: wait; }
+    .hint { color: var(--muted); font-size: .85rem; margin: .5rem 0 0; }
+    #status { margin: 1.25rem 0; }
+    .error { color: #dc2626; }
+    section { margin-top: 1.75rem; }
+    h2 { font-size: 1.15rem; margin: 0 0 .5rem; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+    th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    th { font-weight: 600; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <h1>Radius</h1>
+  <p class="sub">The 5 nearest aircraft and Amtrak trains to any location.</p>
+
+  <form id="search">
+    <input id="q" name="q" placeholder="City, address, ZIP, or coordinates" autocomplete="off">
+    <button type="submit">Search</button>
+    <button type="button" class="secondary" id="locate">Use my location</button>
+  </form>
+  <p class="hint">Try: <code>Chicago</code>, <code>10001</code>, <code>40.7128, -74.0060</code>, <code>40°42'46"N 74°0'21"W</code>, or a Google Maps link. Leave blank to use your IP location.</p>
+
+  <div id="status"></div>
+  <div id="results"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const esc = (v) => v == null || v === "" ? "–" :
+      String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+    function table(cols, rows) {
+      const head = cols.map((c) => `<th class="${c.num ? "num" : ""}">${c.label}</th>`).join("");
+      const body = rows.map((r, i) => "<tr>" + cols.map((c) =>
+        `<td class="${c.num ? "num" : ""}">${c.render ? c.render(r, i) : esc(r[c.key])}</td>`).join("") + "</tr>").join("");
+      return `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+    }
+
+    function section(title, data, cols, emptyMsg) {
+      let inner;
+      if (data.error) inner = `<p class="error">${esc(data.error)}</p>`;
+      else if (!data.rows.length) inner = `<p>${emptyMsg}</p>`;
+      else inner = table(cols, data.rows);
+      return `<section><h2>${title}</h2>${inner}</section>`;
+    }
+
+    const planeCols = [
+      { label: "#", render: (r, i) => i + 1 },
+      { label: "Callsign", render: (r) => r.hex
+          ? `<a href="https://globe.adsb.lol/?icao=${encodeURIComponent(r.hex)}" target="_blank" rel="noopener">${esc(r.callsign)}</a>`
+          : esc(r.callsign) },
+      { label: "Reg", key: "reg" },
+      { label: "Type", key: "type" },
+      { label: "Dist (nm)", key: "distance_nm", num: true },
+      { label: "Alt (ft)", key: "alt_ft", num: true },
+      { label: "Speed (kt)", key: "speed_kt", num: true },
+    ];
+    const trainCols = [
+      { label: "#", render: (r, i) => i + 1 },
+      { label: "Train", key: "number" },
+      { label: "Route", key: "route" },
+      { label: "To", key: "destination" },
+      { label: "Dist (mi)", key: "distance_mi", num: true },
+      { label: "Speed (mph)", key: "speed_mph", num: true },
+    ];
+
+    async function search(params) {
+      const buttons = document.querySelectorAll("button");
+      buttons.forEach((b) => (b.disabled = true));
+      $("status").textContent = "Searching…";
+      $("results").innerHTML = "";
+      try {
+        const res = await fetch("/api/nearby?" + new URLSearchParams(params));
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+        const { lat, lon, label } = data.location;
+        $("status").innerHTML = `Showing results near <strong>${esc(label)}</strong> (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+        $("results").innerHTML =
+          section("✈️ Nearest aircraft", data.planes, planeCols, "No aircraft found within 250 nm.") +
+          section("🚆 Nearest Amtrak trains", data.trains, trainCols, "No active Amtrak trains found.");
+      } catch (err) {
+        $("status").innerHTML = `<span class="error">${esc(err.message)}</span>`;
+      } finally {
+        buttons.forEach((b) => (b.disabled = false));
+      }
+    }
+
+    $("search").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const q = $("q").value.trim();
+      search(q ? { q } : {});
+    });
+
+    $("locate").addEventListener("click", () => {
+      if (!navigator.geolocation) return ($("status").textContent = "Geolocation isn't supported by your browser.");
+      $("status").textContent = "Getting your location…";
+      navigator.geolocation.getCurrentPosition(
+        (pos) => search({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+        (err) => ($("status").innerHTML = `<span class="error">${esc(err.message)}</span>`),
+        { timeout: 10000 }
+      );
+    });
+  </script>
+</body>
+</html>
