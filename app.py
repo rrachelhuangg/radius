@@ -10,6 +10,7 @@ from location import resolve
 from radius import current_weather, nearest_planes, nearest_trains
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+MAX_RESULTS = 50
 
 app = Flask(__name__)
 
@@ -65,7 +66,18 @@ def train_row(t):
     }
 
 
+def count_arg(name, default=5):
+    """How many results the user asked for, clamped to 0..MAX_RESULTS."""
+    try:
+        n = int(request.args.get(name, default))
+    except ValueError:
+        n = default
+    return max(0, min(MAX_RESULTS, n))
+
+
 def collect(future, to_row):
+    if future is None:  # user asked for 0
+        return {"rows": [], "error": None}
     try:
         return {"rows": [to_row(x) for x in future.result()], "error": None}
     except Exception as e:
@@ -81,9 +93,10 @@ def nearby():
     except Exception as e:
         return jsonify(error=f"Location lookup failed: {e}"), 502
 
+    num_planes, num_trains = count_arg("planes"), count_arg("trains")
     with ThreadPoolExecutor(max_workers=3) as pool:
-        planes = pool.submit(nearest_planes, lat, lon)
-        trains = pool.submit(nearest_trains, lat, lon)
+        planes = pool.submit(nearest_planes, lat, lon, num_planes) if num_planes else None
+        trains = pool.submit(nearest_trains, lat, lon, num_trains) if num_trains else None
         weather = pool.submit(current_weather, lat, lon)
         try:
             weather = {"data": weather.result(), "error": None}

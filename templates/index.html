@@ -6,6 +6,9 @@
   <title>Radius — planes, trains &amp; weather near you</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.css">
+  <script src="https://unpkg.com/maplibre-gl@4/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0/leaflet-maplibre-gl.js"></script>
   <script>
     // Set the theme before first paint so the page doesn't flash the wrong colors
     document.documentElement.dataset.theme = localStorage.getItem("theme") ||
@@ -15,13 +18,13 @@
     :root, :root[data-theme="light"] {
       color-scheme: light;
       --bg: #ffffff; --fg: #111827; --muted: #6b7280; --border: #e5e7eb; --hover: #2563eb14;
-      --accent: #2563eb; --on-accent: #ffffff; --error: #dc2626; --icon-halo: #ffffff;
+      --accent: #2563eb; --on-accent: #ffffff; --error: #dc2626;
       --control-bg: #ffffff; --control-hover: #f3f4f6; --switch-off: #d1d5db;
     }
     :root[data-theme="dark"] {
       color-scheme: dark;
       --bg: #0f172a; --fg: #e5e7eb; --muted: #94a3b8; --border: #334155; --hover: #60a5fa1f;
-      --accent: #60a5fa; --on-accent: #0f172a; --error: #f87171; --icon-halo: #000000;
+      --accent: #60a5fa; --on-accent: #0f172a; --error: #f87171;
       --control-bg: #1e293b; --control-hover: #334155; --switch-off: #475569;
     }
     * { box-sizing: border-box; }
@@ -34,11 +37,18 @@
     form { display: flex; gap: .5rem; flex-wrap: wrap; }
     input { flex: 1 1 100%; padding: .6rem .75rem; font-size: 1rem; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: inherit; }
     input::placeholder { color: var(--muted); }
+    input[aria-invalid="true"] { border-color: var(--error); outline: 2px solid color-mix(in srgb, var(--error) 35%, transparent); }
+    .field-error { flex: 1 1 100%; margin: -.25rem 0 0; color: var(--error); font-size: .85rem; }
     button { flex: 1; padding: .55rem .8rem; font-size: .95rem; border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent); cursor: pointer; }
     button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
     button:disabled { opacity: .6; cursor: wait; }
     code { background: var(--hover); padding: 0 .25em; border-radius: 4px; }
     .hint { color: var(--muted); font-size: .8rem; margin: .5rem 0 0; }
+    .counts { margin-top: .75rem; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: 10px; display: grid; gap: .4rem; }
+    .counts h2 { font-size: .85rem; margin: 0; color: var(--muted); font-weight: 500; }
+    .count-row { display: grid; grid-template-columns: 5.5rem 1fr 3.75rem; align-items: center; gap: .6rem; font-size: .9rem; }
+    .count-row input[type="number"] { padding: .3rem .4rem; font-size: .9rem; text-align: right; font-variant-numeric: tabular-nums; }
+    .count-row input[type="range"] { padding: 0; border: 0; outline: 0; accent-color: var(--accent); cursor: pointer; }
     #status { margin: 1rem 0 0; font-size: .9rem; }
     .error { color: var(--error); }
     section { margin-top: 1.25rem; }
@@ -70,7 +80,16 @@
     .weather dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem 1rem; margin: .75rem 0 0; }
     .weather dt { color: var(--muted); font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; }
     .weather dd { margin: 0; font-size: .9rem; font-variant-numeric: tabular-nums; }
-    .emoji-icon span { display: block; font-size: 22px; line-height: 28px; text-align: center; filter: drop-shadow(0 0 2px var(--icon-halo)); }
+    .emoji-icon { --glow: #22d3ee; }
+    .emoji-icon.train { --glow: #fbbf24; }
+    .emoji-icon span {
+      display: block; font-size: 30px; line-height: 40px; text-align: center;
+      filter: drop-shadow(0 0 1px var(--glow)) drop-shadow(0 0 4px var(--glow)) drop-shadow(0 0 10px var(--glow));
+    }
+    /* Markers already stand out on the dark map, so tone the glow down */
+    [data-theme="dark"] .emoji-icon span {
+      filter: drop-shadow(0 0 1px var(--glow)) drop-shadow(0 0 5px color-mix(in srgb, var(--glow) 60%, transparent));
+    }
     a { color: var(--accent); }
     @media (max-width: 800px) {
       body { grid-template-columns: 1fr; grid-template-rows: 50vh auto; height: auto; }
@@ -82,7 +101,7 @@
 <body>
   <aside>
     <h1>Radius</h1>
-    <p class="sub">Current weather and the 5 nearest aircraft and Amtrak trains to any location.</p>
+    <p class="sub">Current weather and the nearest aircraft and Amtrak trains to any location.</p>
 
     <details class="settings">
       <summary>⚙️ Settings</summary>
@@ -93,11 +112,26 @@
     </details>
 
     <form id="search">
-      <input id="q" name="q" placeholder="City, address, ZIP, or coordinates" autocomplete="off">
+      <input id="q" name="q" placeholder="City, address, ZIP, or coordinates" autocomplete="off" aria-describedby="q-error">
+      <p id="q-error" class="field-error" role="alert" hidden>You must enter a location.</p>
       <button type="submit">Search</button>
       <button type="button" class="secondary" id="locate">Use my location</button>
     </form>
-    <p class="hint">Try <code>Chicago</code>, <code>10001</code>, <code>40.7128, -74.0060</code>, or a Google Maps link. You can also click anywhere on the map. Leave the box blank to use your IP location.</p>
+    <p class="hint">Try <code>Chicago</code>, <code>10001</code>, <code>40.7128, -74.0060</code>, or a Google Maps link. You can also click anywhere on the map.</p>
+
+    <div class="counts">
+      <h2>Results to show</h2>
+      <div class="count-row">
+        <label for="planes-range">✈️ Planes</label>
+        <input type="range" id="planes-range" min="0" max="50" value="5">
+        <input type="number" id="planes-num" min="0" max="50" value="5" aria-label="Number of planes">
+      </div>
+      <div class="count-row">
+        <label for="trains-range">🚆 Trains</label>
+        <input type="range" id="trains-range" min="0" max="50" value="5">
+        <input type="number" id="trains-num" min="0" max="50" value="5" aria-label="Number of trains">
+      </div>
+    </div>
 
     <div id="status"></div>
     <div id="results"></div>
@@ -111,24 +145,23 @@
     const fmt = (v, unit, digits = 0) => v == null ? "–" : `${Number(v).toFixed(digits)}${unit}`;
 
     // ---- Map ----
-    const map = L.map("map", { worldCopyJump: true }).setView([39.5, -98.35], 4);
-    const OSM_CREDIT = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
-    const tiles = {
-      light: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: OSM_CREDIT }),
-      dark: L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-        maxZoom: 19, subdomains: "abcd",
-        attribution: `${OSM_CREDIT} &copy; <a href="https://carto.com/attributions">CARTO</a>`,
-      }),
+    const map = L.map("map", { worldCopyJump: true, maxZoom: 19 }).setView([39.5, -98.35], 4);
+    // OpenFreeMap vector basemaps (free, no API key), drawn by MapLibre inside Leaflet
+    const BASEMAP_STYLES = {
+      light: "https://tiles.openfreemap.org/styles/positron",
+      dark: "https://tiles.openfreemap.org/styles/dark",
     };
+    const BASEMAP_CREDIT = '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> ' +
+      '&copy; <a href="https://www.openmaptiles.org/" target="_blank">OpenMapTiles</a> ' +
+      'Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>';
+    let basemap;
 
     // ---- Theme ----
     function applyTheme(theme) {
       document.documentElement.dataset.theme = theme;
       $("theme-switch").setAttribute("aria-checked", theme === "dark");
-      for (const [name, t] of Object.entries(tiles)) {
-        if (name === theme) t.addTo(map);
-        else map.removeLayer(t);
-      }
+      if (basemap) map.removeLayer(basemap);
+      basemap = L.maplibreGL({ style: BASEMAP_STYLES[theme], attribution: BASEMAP_CREDIT }).addTo(map);
     }
     applyTheme(document.documentElement.dataset.theme);
 
@@ -145,11 +178,11 @@
     const layer = L.layerGroup().addTo(map);
     let markers = { planes: [], trains: [] };
 
-    const emojiIcon = (emoji, rotate = 0) => L.divIcon({
-      className: "emoji-icon",
+    const emojiIcon = (emoji, kind, rotate = 0) => L.divIcon({
+      className: `emoji-icon ${kind}`,
       html: `<span style="transform: rotate(${rotate}deg)">${emoji}</span>`,
-      iconSize: [28, 28],
-      iconAnchor: [14, 14],
+      iconSize: [40, 40],
+      iconAnchor: [20, 20],
     });
 
     map.on("click", (e) => {
@@ -217,34 +250,62 @@
         .addTo(layer);
 
       markers.planes = data.planes.rows.map((r) =>
-        L.marker([r.lat, r.lon], { icon: emojiIcon("✈️", (r.track ?? 45) - 45) })  // emoji points NE
+        L.marker([r.lat, r.lon], { icon: emojiIcon("✈️", "plane", (r.track ?? 45) - 45) })  // emoji points NE
           .bindPopup(`<strong>${esc(r.callsign)}</strong><br>${describePlane(r).meta}<br>
             <a href="https://globe.adsb.lol/?icao=${encodeURIComponent(r.hex)}" target="_blank" rel="noopener">Track on adsb.lol</a>`)
           .addTo(layer));
       markers.trains = data.trains.rows.map((r) =>
-        L.marker([r.lat, r.lon], { icon: emojiIcon("🚆") })
+        L.marker([r.lat, r.lon], { icon: emojiIcon("🚆", "train") })
           .bindPopup(`<strong>Train ${esc(r.number)} — ${esc(r.route)}</strong><br>${describeTrain(r).meta}`)
           .addTo(layer));
 
       map.flyTo([lat, lon], 10);
     }
 
+    // ---- Result counts ----
+    const MAX_COUNT = 50;
+    let lastParams = null;
+
+    function setCount(kind, value) {
+      const n = Math.max(0, Math.min(MAX_COUNT, parseInt(value, 10) || 0));
+      $(`${kind}-range`).value = $(`${kind}-num`).value = n;
+      localStorage.setItem(`count-${kind}`, n);
+      return n;
+    }
+
+    for (const kind of ["planes", "trains"]) {
+      const range = $(`${kind}-range`), num = $(`${kind}-num`);
+      setCount(kind, localStorage.getItem(`count-${kind}`) ?? 5);
+      range.addEventListener("input", () => (num.value = range.value));  // live while dragging
+      num.addEventListener("input", () => { if (num.value !== "") range.value = num.value; });
+      // Re-run the last search once the user lets go of the slider or finishes typing
+      for (const el of [range, num]) {
+        el.addEventListener("change", () => {
+          setCount(kind, el.value);
+          if (lastParams) search(lastParams);
+        });
+      }
+    }
+
     // ---- Search ----
     async function search(params) {
+      setQueryError(false);
+      lastParams = params;
+      const counts = { planes: setCount("planes", $("planes-num").value), trains: setCount("trains", $("trains-num").value) };
       const buttons = document.querySelectorAll("button");
       buttons.forEach((b) => (b.disabled = true));
       $("status").textContent = "Searching…";
       $("results").innerHTML = "";
       try {
-        const res = await fetch("/api/nearby?" + new URLSearchParams(params));
+        const res = await fetch("/api/nearby?" + new URLSearchParams({ ...params, ...counts }));
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
         const { lat, lon, label } = data.location;
         $("status").innerHTML = `Near <strong>${esc(label)}</strong> (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
         $("results").innerHTML =
           weatherSection(data.weather) +
-          listSection("✈️ Nearest aircraft", "planes", data.planes, describePlane, "No aircraft found within 250 nm.") +
-          listSection("🚆 Nearest Amtrak trains", "trains", data.trains, describeTrain, "No active Amtrak trains found.");
+          (counts.planes ? listSection("✈️ Nearest aircraft", "planes", data.planes, describePlane, "No aircraft found within 250 nm.") : "") +
+          (counts.trains ? listSection("🚆 Nearest Amtrak trains", "trains", data.trains, describeTrain, "No active Amtrak trains found.") : "");
         plotResults(data);
       } catch (err) {
         $("status").innerHTML = `<span class="error">${esc(err.message)}</span>`;
@@ -253,11 +314,22 @@
       }
     }
 
+    function setQueryError(show) {
+      $("q").setAttribute("aria-invalid", show);
+      $("q-error").hidden = !show;
+    }
+
     $("search").addEventListener("submit", (e) => {
       e.preventDefault();
       const q = $("q").value.trim();
-      search(q ? { q } : {});
+      if (!q) {
+        setQueryError(true);
+        $("q").focus();
+        return;
+      }
+      search({ q });
     });
+    $("q").addEventListener("input", () => setQueryError(false));
 
     $("locate").addEventListener("click", () => {
       if (!navigator.geolocation) return ($("status").textContent = "Geolocation isn't supported by your browser.");
