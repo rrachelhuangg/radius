@@ -1,2 +1,3 @@
 - allow user to enter their location in multiple formats and have it all parsed to be of the required format for the apis
 - add the ability to add annotations and save text files (user profiles?/databases?/caching?)
+- when scrolling on phone, keep the map at the top of the screen
