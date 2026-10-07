@@ -15,6 +15,26 @@ import urllib.request
 
 API_URL = "https://api.adsb.lol/v2/point/{lat}/{lon}/{radius}"
 AMTRAK_URL = "https://api-v3.amtraker.com/v3/trains"
+WEATHER_URL = (
+    "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+    "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,"
+    "cloud_cover,precipitation,wind_speed_10m,wind_direction_10m,wind_gusts_10m"
+    "&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=auto"
+)
+# WMO weather interpretation codes used by Open-Meteo
+WEATHER_CODES = {
+    0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+    45: "Fog", 48: "Depositing rime fog",
+    51: "Light drizzle", 53: "Drizzle", 55: "Dense drizzle",
+    56: "Light freezing drizzle", 57: "Freezing drizzle",
+    61: "Light rain", 63: "Rain", 65: "Heavy rain",
+    66: "Light freezing rain", 67: "Freezing rain",
+    71: "Light snow", 73: "Snow", 75: "Heavy snow", 77: "Snow grains",
+    80: "Light rain showers", 81: "Rain showers", 82: "Violent rain showers",
+    85: "Light snow showers", 86: "Snow showers",
+    95: "Thunderstorm", 96: "Thunderstorm with light hail", 99: "Thunderstorm with heavy hail",
+}
+COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 SEARCH_RADIUS_NM = 250  # max radius the API allows
 NUM_PLANES = 5
 NUM_TRAINS = 5
@@ -67,6 +87,23 @@ def nearest_trains(lat, lon, count=NUM_TRAINS):
             trains.append(train)
     trains.sort(key=lambda t: t["distance_mi"])
     return trains[:count]
+
+
+def current_weather(lat, lon):
+    cur = fetch_json(WEATHER_URL.format(lat=lat, lon=lon))["current"]
+    wind_dir = cur.get("wind_direction_10m")
+    return {
+        "conditions": WEATHER_CODES.get(cur.get("weather_code"), "Unknown"),
+        "temperature_f": cur.get("temperature_2m"),
+        "feels_like_f": cur.get("apparent_temperature"),
+        "humidity_pct": cur.get("relative_humidity_2m"),
+        "cloud_cover_pct": cur.get("cloud_cover"),
+        "precipitation_in": cur.get("precipitation"),
+        "wind_mph": cur.get("wind_speed_10m"),
+        "wind_gusts_mph": cur.get("wind_gusts_10m"),
+        "wind_dir": COMPASS[round(wind_dir / 45) % 8] if wind_dir is not None else None,
+        "time": cur.get("time"),
+    }
 
 
 def print_planes(lat, lon):

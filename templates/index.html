@@ -26,11 +26,18 @@
     th { font-weight: 600; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
     td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
     a { color: var(--accent); }
+    .weather { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 2rem; padding: 1rem 1.25rem; border: 1px solid var(--border); border-radius: 12px; }
+    .weather .temp { font-size: 2.5rem; font-weight: 600; line-height: 1; }
+    .weather .cond { font-size: 1.1rem; font-weight: 500; }
+    .weather .feels { color: var(--muted); font-size: .9rem; }
+    .weather dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: .5rem 1.5rem; margin: 0; flex: 1 1 300px; }
+    .weather dt { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .03em; }
+    .weather dd { margin: 0; font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
   <h1>Radius</h1>
-  <p class="sub">The 5 nearest aircraft and Amtrak trains to any location.</p>
+  <p class="sub">Current weather and the 5 nearest aircraft and Amtrak trains to any location.</p>
 
   <form id="search">
     <input id="q" name="q" placeholder="City, address, ZIP, or coordinates" autocomplete="off">
@@ -60,6 +67,30 @@
       else if (!data.rows.length) inner = `<p>${emptyMsg}</p>`;
       else inner = table(cols, data.rows);
       return `<section><h2>${title}</h2>${inner}</section>`;
+    }
+
+    function weatherSection({ data: w, error }) {
+      let inner;
+      if (error) inner = `<p class="error">${esc(error)}</p>`;
+      else {
+        const fmt = (v, unit, digits = 0) => v == null ? "–" : `${Number(v).toFixed(digits)}${unit}`;
+        const wind = w.wind_mph == null ? "–" : `${fmt(w.wind_mph, " mph")}${w.wind_dir ? " " + w.wind_dir : ""}`;
+        inner = `<div class="weather">
+          <div>
+            <div class="temp">${fmt(w.temperature_f, "°F")}</div>
+            <div class="cond">${esc(w.conditions)}</div>
+            <div class="feels">Feels like ${fmt(w.feels_like_f, "°F")}</div>
+          </div>
+          <dl>
+            <div><dt>Wind</dt><dd>${esc(wind)}</dd></div>
+            <div><dt>Gusts</dt><dd>${fmt(w.wind_gusts_mph, " mph")}</dd></div>
+            <div><dt>Humidity</dt><dd>${fmt(w.humidity_pct, "%")}</dd></div>
+            <div><dt>Cloud cover</dt><dd>${fmt(w.cloud_cover_pct, "%")}</dd></div>
+            <div><dt>Precip</dt><dd>${fmt(w.precipitation_in, " in", 2)}</dd></div>
+          </dl>
+        </div>`;
+      }
+      return `<section><h2>🌤️ Current weather</h2>${inner}</section>`;
     }
 
     const planeCols = [
@@ -94,6 +125,7 @@
         const { lat, lon, label } = data.location;
         $("status").innerHTML = `Showing results near <strong>${esc(label)}</strong> (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
         $("results").innerHTML =
+          weatherSection(data.weather) +
           section("✈️ Nearest aircraft", data.planes, planeCols, "No aircraft found within 250 nm.") +
           section("🚆 Nearest Amtrak trains", data.trains, trainCols, "No active Amtrak trains found.");
       } catch (err) {

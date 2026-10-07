@@ -7,7 +7,7 @@ from urllib.parse import unquote
 from flask import Flask, jsonify, request, send_from_directory
 
 from location import resolve
-from radius import nearest_planes, nearest_trains
+from radius import current_weather, nearest_planes, nearest_trains
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -76,11 +76,17 @@ def nearby():
     except Exception as e:
         return jsonify(error=f"Location lookup failed: {e}"), 502
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    with ThreadPoolExecutor(max_workers=3) as pool:
         planes = pool.submit(nearest_planes, lat, lon)
         trains = pool.submit(nearest_trains, lat, lon)
+        weather = pool.submit(current_weather, lat, lon)
+        try:
+            weather = {"data": weather.result(), "error": None}
+        except Exception as e:
+            weather = {"data": None, "error": f"Lookup failed: {e}"}
         return jsonify(
             location={"lat": lat, "lon": lon, "label": label},
+            weather=weather,
             planes=collect(planes, plane_row),
             trains=collect(trains, train_row),
         )
