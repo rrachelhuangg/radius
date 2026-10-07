@@ -64,19 +64,21 @@ def haversine_nm(lat1, lon1, lat2, lon2):
     return 2 * r_nm * math.asin(math.sqrt(a))
 
 
-def nearest_planes(lat, lon, count=NUM_PLANES):
-    data = fetch_json(API_URL.format(lat=lat, lon=lon, radius=SEARCH_RADIUS_NM))
+def nearest_planes(lat, lon, count=NUM_PLANES, radius_nm=SEARCH_RADIUS_NM):
+    radius_nm = min(radius_nm, SEARCH_RADIUS_NM)
+    data = fetch_json(API_URL.format(lat=lat, lon=lon, radius=round(radius_nm)))
     planes = []
     for ac in data.get("ac", []):
         if "lat" not in ac or "lon" not in ac:
             continue
         ac["distance_nm"] = haversine_nm(lat, lon, ac["lat"], ac["lon"])
-        planes.append(ac)
+        if ac["distance_nm"] <= radius_nm:
+            planes.append(ac)
     planes.sort(key=lambda ac: ac["distance_nm"])
     return planes[:count]
 
 
-def nearest_trains(lat, lon, count=NUM_TRAINS):
+def nearest_trains(lat, lon, count=NUM_TRAINS, radius_mi=None):
     data = fetch_json(AMTRAK_URL)  # {train number: [train, ...]}
     trains = []
     for runs in data.values():
@@ -84,7 +86,8 @@ def nearest_trains(lat, lon, count=NUM_TRAINS):
             if train.get("trainState") != "Active" or train.get("lat") is None:
                 continue
             train["distance_mi"] = haversine_nm(lat, lon, train["lat"], train["lon"]) * NM_TO_MI
-            trains.append(train)
+            if radius_mi is None or train["distance_mi"] <= radius_mi:
+                trains.append(train)
     trains.sort(key=lambda t: t["distance_mi"])
     return trains[:count]
 

@@ -7,10 +7,11 @@ from urllib.parse import unquote
 from flask import Flask, jsonify, request, send_from_directory
 
 from location import resolve
-from radius import current_weather, nearest_planes, nearest_trains
+from radius import NM_TO_MI, current_weather, nearest_planes, nearest_trains
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 MAX_RESULTS = 50
+MAX_RADIUS_MI = 250
 
 app = Flask(__name__)
 
@@ -75,6 +76,15 @@ def count_arg(name, default=5):
     return max(0, min(MAX_RESULTS, n))
 
 
+def radius_arg(default=50):
+    """Search radius in miles the user asked for, clamped to 1..MAX_RADIUS_MI."""
+    try:
+        r = int(request.args.get("radius", default))
+    except ValueError:
+        r = default
+    return max(1, min(MAX_RADIUS_MI, r))
+
+
 def collect(future, to_row):
     if future is None:  # user asked for 0
         return {"rows": [], "error": None}
@@ -94,9 +104,10 @@ def nearby():
         return jsonify(error=f"Location lookup failed: {e}"), 502
 
     num_planes, num_trains = count_arg("planes"), count_arg("trains")
+    radius_mi = radius_arg()
     with ThreadPoolExecutor(max_workers=3) as pool:
-        planes = pool.submit(nearest_planes, lat, lon, num_planes) if num_planes else None
-        trains = pool.submit(nearest_trains, lat, lon, num_trains) if num_trains else None
+        planes = pool.submit(nearest_planes, lat, lon, num_planes, radius_mi / NM_TO_MI) if num_planes else None
+        trains = pool.submit(nearest_trains, lat, lon, num_trains, radius_mi) if num_trains else None
         weather = pool.submit(current_weather, lat, lon)
         try:
             weather = {"data": weather.result(), "error": None}
@@ -104,6 +115,7 @@ def nearby():
             weather = {"data": None, "error": f"Lookup failed: {e}"}
         return jsonify(
             location={"lat": lat, "lon": lon, "label": label},
+            radius_mi=radius_mi,
             weather=weather,
             planes=collect(planes, plane_row),
             trains=collect(trains, train_row),

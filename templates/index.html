@@ -50,6 +50,7 @@
     .count-row { display: grid; grid-template-columns: 5.5rem 1fr 3.75rem; align-items: center; gap: .6rem; font-size: .9rem; }
     .count-row input[type="number"] { padding: .3rem .4rem; font-size: .9rem; text-align: right; font-variant-numeric: tabular-nums; }
     .count-row input[type="range"] { padding: 0; border: 0; outline: 0; accent-color: var(--accent); cursor: pointer; }
+    .radius-ring { stroke: var(--accent); }
     #status { margin: 1rem 0 0; font-size: .9rem; }
     .error { color: var(--error); }
     section { margin-top: 1.25rem; }
@@ -132,6 +133,11 @@
         <input type="range" id="trains-range" min="0" max="50" value="5">
         <input type="number" id="trains-num" min="0" max="50" value="5" aria-label="Number of trains">
       </div>
+      <div class="count-row">
+        <label for="radius-range">📏 Radius</label>
+        <input type="range" id="radius-range" min="1" max="250" value="50">
+        <input type="number" id="radius-num" min="1" max="250" value="50" aria-label="Search radius in miles" title="Miles">
+      </div>
     </div>
 
     <div id="status"></div>
@@ -177,6 +183,8 @@
     });
 
     const layer = L.layerGroup().addTo(map);
+    // Dotted outline of the search radius; kept outside `layer` so the slider can resize it live
+    const radiusCircle = L.circle([0, 0], { radius: 0, className: "radius-ring", weight: 2, dashArray: "2 8", lineCap: "round", fill: false, interactive: false });
     let markers = { planes: [], trains: [] };
 
     const emojiIcon = (emoji, kind, rotate = 0) => L.divIcon({
@@ -246,6 +254,7 @@
     function plotResults(data) {
       layer.clearLayers();
       const { lat, lon, label } = data.location;
+      radiusCircle.setLatLng([lat, lon]).setRadius(data.radius_mi * METERS_PER_MILE).addTo(map);
       L.circleMarker([lat, lon], { radius: 9, color: "#fff", weight: 3, fillColor: "#2563eb", fillOpacity: 1 })
         .bindPopup(`<strong>${esc(label)}</strong>`)
         .addTo(layer);
@@ -260,7 +269,7 @@
           .bindPopup(`<strong>Train ${esc(r.number)} — ${esc(r.route)}</strong><br>${describeTrain(r).meta}`)
           .addTo(layer));
 
-      map.flyTo([lat, lon], 10);
+      map.flyToBounds(L.latLng(lat, lon).toBounds(2 * radiusCircle.getRadius()), { padding: [20, 20] });
     }
 
     // ---- Result counts ----
@@ -272,6 +281,29 @@
       $(`${kind}-range`).value = $(`${kind}-num`).value = n;
       localStorage.setItem(`count-${kind}`, n);
       return n;
+    }
+
+    // ---- Search radius (miles) ----
+    const MAX_RADIUS = 250, METERS_PER_MILE = 1609.344;
+
+    function setRadius(value) {
+      const r = Math.max(1, Math.min(MAX_RADIUS, parseInt(value, 10) || 1));
+      $("radius-range").value = $("radius-num").value = r;
+      localStorage.setItem("radius", r);
+      return r;
+    }
+
+    setRadius(localStorage.getItem("radius") ?? 50);
+    $("radius-range").addEventListener("input", () => {
+      $("radius-num").value = $("radius-range").value;
+      radiusCircle.setRadius($("radius-range").value * METERS_PER_MILE);  // live while dragging
+    });
+    $("radius-num").addEventListener("input", () => { if ($("radius-num").value !== "") $("radius-range").value = $("radius-num").value; });
+    for (const el of [$("radius-range"), $("radius-num")]) {
+      el.addEventListener("change", () => {
+        setRadius(el.value);
+        if (lastParams) search(lastParams);
+      });
     }
 
     for (const kind of ["planes", "trains"]) {
@@ -293,20 +325,21 @@
       setQueryError(false);
       lastParams = params;
       const counts = { planes: setCount("planes", $("planes-num").value), trains: setCount("trains", $("trains-num").value) };
+      const radius = setRadius($("radius-num").value);
       const buttons = document.querySelectorAll("button");
       buttons.forEach((b) => (b.disabled = true));
       $("status").textContent = "Searching…";
       $("results").innerHTML = "";
       try {
-        const res = await fetch("/api/nearby?" + new URLSearchParams({ ...params, ...counts }));
+        const res = await fetch("/api/nearby?" + new URLSearchParams({ ...params, ...counts, radius }));
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
         const { lat, lon, label } = data.location;
-        $("status").innerHTML = `Near <strong>${esc(label)}</strong> (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+        $("status").innerHTML = `Near <strong>${esc(label)}</strong> (${lat.toFixed(4)}, ${lon.toFixed(4)}) · within ${data.radius_mi} mi`;
         $("results").innerHTML =
           weatherSection(data.weather) +
-          (counts.planes ? listSection("✈️ Nearest aircraft", "planes", data.planes, describePlane, "No aircraft found within 250 nm.") : "") +
-          (counts.trains ? listSection("🚆 Nearest Amtrak trains", "trains", data.trains, describeTrain, "No active Amtrak trains found.") : "");
+          (counts.planes ? listSection("✈️ Nearest aircraft", "planes", data.planes, describePlane, `No aircraft found within ${data.radius_mi} mi.`) : "") +
+          (counts.trains ? listSection("🚆 Nearest Amtrak trains", "trains", data.trains, describeTrain, `No active Amtrak trains found within ${data.radius_mi} mi.`) : "");
         plotResults(data);
       } catch (err) {
         $("status").innerHTML = `<span class="error">${esc(err.message)}</span>`;
