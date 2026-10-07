@@ -3,89 +3,176 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Radius — planes &amp; trains near you</title>
+  <title>Radius — planes, trains &amp; weather near you</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // Set the theme before first paint so the page doesn't flash the wrong colors
+    document.documentElement.dataset.theme = localStorage.getItem("theme") ||
+      (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  </script>
   <style>
-    :root { color-scheme: light dark; --accent: #2563eb; --muted: #6b7280; --border: #d1d5db55; }
+    :root, :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #ffffff; --fg: #111827; --muted: #6b7280; --border: #e5e7eb; --hover: #2563eb14;
+      --accent: #2563eb; --on-accent: #ffffff; --error: #dc2626; --icon-halo: #ffffff;
+      --control-bg: #ffffff; --control-hover: #f3f4f6; --switch-off: #d1d5db;
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #0f172a; --fg: #e5e7eb; --muted: #94a3b8; --border: #334155; --hover: #60a5fa1f;
+      --accent: #60a5fa; --on-accent: #0f172a; --error: #f87171; --icon-halo: #000000;
+      --control-bg: #1e293b; --control-hover: #334155; --switch-off: #475569;
+    }
     * { box-sizing: border-box; }
-    body { font-family: system-ui, -apple-system, sans-serif; max-width: 860px; margin: 0 auto; padding: 2rem 1rem; line-height: 1.4; }
-    h1 { margin: 0 0 .25rem; }
-    .sub { color: var(--muted); margin: 0 0 1.5rem; }
+    html, body { height: 100%; margin: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.4; display: grid; grid-template-columns: 380px 1fr; background: var(--bg); color: var(--fg); }
+    aside { overflow-y: auto; padding: 1.25rem; border-right: 1px solid var(--border); }
+    #map { height: 100%; }
+    h1 { margin: 0 0 .25rem; font-size: 1.5rem; }
+    .sub { color: var(--muted); margin: 0 0 1rem; font-size: .9rem; }
     form { display: flex; gap: .5rem; flex-wrap: wrap; }
-    input { flex: 1 1 280px; padding: .65rem .8rem; font-size: 1rem; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: inherit; }
-    button { padding: .65rem 1rem; font-size: 1rem; border: 0; border-radius: 8px; background: var(--accent); color: #fff; cursor: pointer; }
+    input { flex: 1 1 100%; padding: .6rem .75rem; font-size: 1rem; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: inherit; }
+    input::placeholder { color: var(--muted); }
+    button { flex: 1; padding: .55rem .8rem; font-size: .95rem; border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent); cursor: pointer; }
     button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
     button:disabled { opacity: .6; cursor: wait; }
-    .hint { color: var(--muted); font-size: .85rem; margin: .5rem 0 0; }
-    #status { margin: 1.25rem 0; }
-    .error { color: #dc2626; }
-    section { margin-top: 1.75rem; }
-    h2 { font-size: 1.15rem; margin: 0 0 .5rem; }
-    .table-wrap { overflow-x: auto; }
-    table { width: 100%; border-collapse: collapse; font-size: .95rem; }
-    th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
-    th { font-weight: 600; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
-    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    code { background: var(--hover); padding: 0 .25em; border-radius: 4px; }
+    .hint { color: var(--muted); font-size: .8rem; margin: .5rem 0 0; }
+    #status { margin: 1rem 0 0; font-size: .9rem; }
+    .error { color: var(--error); }
+    section { margin-top: 1.25rem; }
+    h2 { font-size: 1rem; margin: 0 0 .5rem; }
+    ol { list-style: none; margin: 0; padding: 0; }
+    li { padding: .5rem .6rem; border-radius: 8px; cursor: pointer; }
+    li:hover { background: var(--hover); }
+    .settings { margin: 0 0 1rem; border: 1px solid var(--border); border-radius: 10px; }
+    .settings summary { padding: .5rem .75rem; cursor: pointer; font-size: .9rem; font-weight: 500; user-select: none; }
+    .settings .row { display: flex; align-items: center; justify-content: space-between; padding: .5rem .75rem .75rem; font-size: .9rem; }
+    .switch { flex: none; position: relative; width: 44px; height: 24px; padding: 0; border-radius: 999px; background: var(--switch-off); transition: background .2s; }
+    .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .2s; }
+    .switch[aria-checked="true"] { background: var(--accent); }
+    .switch[aria-checked="true"]::after { transform: translateX(20px); }
+    /* Leaflet controls and popups follow the theme */
+    .leaflet-container { background: var(--bg); }
+    .leaflet-container a { color: var(--accent); }
+    .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--control-bg); color: var(--fg); }
+    .leaflet-container a.leaflet-popup-close-button { color: var(--muted); }
+    .leaflet-bar a, .leaflet-bar a.leaflet-disabled { background: var(--control-bg); color: var(--fg); border-bottom-color: var(--border); }
+    .leaflet-bar a:hover { background: var(--control-hover); }
+    .leaflet-container .leaflet-control-attribution { background: color-mix(in srgb, var(--control-bg) 80%, transparent); color: var(--muted); }
+    li .title { font-weight: 600; }
+    li .meta { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }
+    .weather { padding: .9rem 1rem; border: 1px solid var(--border); border-radius: 12px; }
+    .weather .temp { font-size: 2rem; font-weight: 600; line-height: 1; }
+    .weather .cond { font-weight: 500; }
+    .weather .feels { color: var(--muted); font-size: .85rem; }
+    .weather dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem 1rem; margin: .75rem 0 0; }
+    .weather dt { color: var(--muted); font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; }
+    .weather dd { margin: 0; font-size: .9rem; font-variant-numeric: tabular-nums; }
+    .emoji-icon span { display: block; font-size: 22px; line-height: 28px; text-align: center; filter: drop-shadow(0 0 2px var(--icon-halo)); }
     a { color: var(--accent); }
-    .weather { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 2rem; padding: 1rem 1.25rem; border: 1px solid var(--border); border-radius: 12px; }
-    .weather .temp { font-size: 2.5rem; font-weight: 600; line-height: 1; }
-    .weather .cond { font-size: 1.1rem; font-weight: 500; }
-    .weather .feels { color: var(--muted); font-size: .9rem; }
-    .weather dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: .5rem 1.5rem; margin: 0; flex: 1 1 300px; }
-    .weather dt { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .03em; }
-    .weather dd { margin: 0; font-variant-numeric: tabular-nums; }
+    @media (max-width: 800px) {
+      body { grid-template-columns: 1fr; grid-template-rows: 50vh auto; height: auto; }
+      #map { order: -1; height: 50vh; }
+      aside { border-right: 0; }
+    }
   </style>
 </head>
 <body>
-  <h1>Radius</h1>
-  <p class="sub">Current weather and the 5 nearest aircraft and Amtrak trains to any location.</p>
+  <aside>
+    <h1>Radius</h1>
+    <p class="sub">Current weather and the 5 nearest aircraft and Amtrak trains to any location.</p>
 
-  <form id="search">
-    <input id="q" name="q" placeholder="City, address, ZIP, or coordinates" autocomplete="off">
-    <button type="submit">Search</button>
-    <button type="button" class="secondary" id="locate">Use my location</button>
-  </form>
-  <p class="hint">Try: <code>Chicago</code>, <code>10001</code>, <code>40.7128, -74.0060</code>, <code>40°42'46"N 74°0'21"W</code>, or a Google Maps link. Leave blank to use your IP location.</p>
+    <details class="settings">
+      <summary>⚙️ Settings</summary>
+      <div class="row">
+        <label for="theme-switch">🌙 Dark mode</label>
+        <button type="button" id="theme-switch" class="switch" role="switch" aria-checked="false"></button>
+      </div>
+    </details>
 
-  <div id="status"></div>
-  <div id="results"></div>
+    <form id="search">
+      <input id="q" name="q" placeholder="City, address, ZIP, or coordinates" autocomplete="off">
+      <button type="submit">Search</button>
+      <button type="button" class="secondary" id="locate">Use my location</button>
+    </form>
+    <p class="hint">Try <code>Chicago</code>, <code>10001</code>, <code>40.7128, -74.0060</code>, or a Google Maps link. You can also click anywhere on the map. Leave the box blank to use your IP location.</p>
+
+    <div id="status"></div>
+    <div id="results"></div>
+  </aside>
+  <div id="map"></div>
 
   <script>
     const $ = (id) => document.getElementById(id);
     const esc = (v) => v == null || v === "" ? "–" :
       String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const fmt = (v, unit, digits = 0) => v == null ? "–" : `${Number(v).toFixed(digits)}${unit}`;
 
-    function table(cols, rows) {
-      const head = cols.map((c) => `<th class="${c.num ? "num" : ""}">${c.label}</th>`).join("");
-      const body = rows.map((r, i) => "<tr>" + cols.map((c) =>
-        `<td class="${c.num ? "num" : ""}">${c.render ? c.render(r, i) : esc(r[c.key])}</td>`).join("") + "</tr>").join("");
-      return `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+    // ---- Map ----
+    const map = L.map("map", { worldCopyJump: true }).setView([39.5, -98.35], 4);
+    const OSM_CREDIT = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+    const tiles = {
+      light: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: OSM_CREDIT }),
+      dark: L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+        maxZoom: 19, subdomains: "abcd",
+        attribution: `${OSM_CREDIT} &copy; <a href="https://carto.com/attributions">CARTO</a>`,
+      }),
+    };
+
+    // ---- Theme ----
+    function applyTheme(theme) {
+      document.documentElement.dataset.theme = theme;
+      $("theme-switch").setAttribute("aria-checked", theme === "dark");
+      for (const [name, t] of Object.entries(tiles)) {
+        if (name === theme) t.addTo(map);
+        else map.removeLayer(t);
+      }
     }
+    applyTheme(document.documentElement.dataset.theme);
 
-    function section(title, data, cols, emptyMsg) {
-      let inner;
-      if (data.error) inner = `<p class="error">${esc(data.error)}</p>`;
-      else if (!data.rows.length) inner = `<p>${emptyMsg}</p>`;
-      else inner = table(cols, data.rows);
-      return `<section><h2>${title}</h2>${inner}</section>`;
-    }
+    $("theme-switch").addEventListener("click", () => {
+      const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+      localStorage.setItem("theme", theme);
+      applyTheme(theme);
+    });
+    // Follow the system setting until the user picks a theme themselves
+    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+      if (!localStorage.getItem("theme")) applyTheme(e.matches ? "dark" : "light");
+    });
 
+    const layer = L.layerGroup().addTo(map);
+    let markers = { planes: [], trains: [] };
+
+    const emojiIcon = (emoji, rotate = 0) => L.divIcon({
+      className: "emoji-icon",
+      html: `<span style="transform: rotate(${rotate}deg)">${emoji}</span>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
+    });
+
+    map.on("click", (e) => {
+      const { lat, lng } = e.latlng.wrap();
+      $("q").value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      search({ q: $("q").value });
+    });
+
+    // ---- Sidebar rendering ----
     function weatherSection({ data: w, error }) {
       let inner;
       if (error) inner = `<p class="error">${esc(error)}</p>`;
       else {
-        const fmt = (v, unit, digits = 0) => v == null ? "–" : `${Number(v).toFixed(digits)}${unit}`;
         const wind = w.wind_mph == null ? "–" : `${fmt(w.wind_mph, " mph")}${w.wind_dir ? " " + w.wind_dir : ""}`;
         inner = `<div class="weather">
-          <div>
-            <div class="temp">${fmt(w.temperature_f, "°F")}</div>
-            <div class="cond">${esc(w.conditions)}</div>
-            <div class="feels">Feels like ${fmt(w.feels_like_f, "°F")}</div>
-          </div>
+          <div class="temp">${fmt(w.temperature_f, "°F")}</div>
+          <div class="cond">${esc(w.conditions)}</div>
+          <div class="feels">Feels like ${fmt(w.feels_like_f, "°F")}</div>
           <dl>
             <div><dt>Wind</dt><dd>${esc(wind)}</dd></div>
             <div><dt>Gusts</dt><dd>${fmt(w.wind_gusts_mph, " mph")}</dd></div>
             <div><dt>Humidity</dt><dd>${fmt(w.humidity_pct, "%")}</dd></div>
-            <div><dt>Cloud cover</dt><dd>${fmt(w.cloud_cover_pct, "%")}</dd></div>
+            <div><dt>Clouds</dt><dd>${fmt(w.cloud_cover_pct, "%")}</dd></div>
             <div><dt>Precip</dt><dd>${fmt(w.precipitation_in, " in", 2)}</dd></div>
           </dl>
         </div>`;
@@ -93,26 +180,56 @@
       return `<section><h2>🌤️ Current weather</h2>${inner}</section>`;
     }
 
-    const planeCols = [
-      { label: "#", render: (r, i) => i + 1 },
-      { label: "Callsign", render: (r) => r.hex
-          ? `<a href="https://globe.adsb.lol/?icao=${encodeURIComponent(r.hex)}" target="_blank" rel="noopener">${esc(r.callsign)}</a>`
-          : esc(r.callsign) },
-      { label: "Reg", key: "reg" },
-      { label: "Type", key: "type" },
-      { label: "Dist (nm)", key: "distance_nm", num: true },
-      { label: "Alt (ft)", key: "alt_ft", num: true },
-      { label: "Speed (kt)", key: "speed_kt", num: true },
-    ];
-    const trainCols = [
-      { label: "#", render: (r, i) => i + 1 },
-      { label: "Train", key: "number" },
-      { label: "Route", key: "route" },
-      { label: "To", key: "destination" },
-      { label: "Dist (mi)", key: "distance_mi", num: true },
-      { label: "Speed (mph)", key: "speed_mph", num: true },
-    ];
+    function listSection(title, kind, data, describe, emptyMsg) {
+      let inner;
+      if (data.error) inner = `<p class="error">${esc(data.error)}</p>`;
+      else if (!data.rows.length) inner = `<p>${emptyMsg}</p>`;
+      else inner = "<ol>" + data.rows.map((r, i) => {
+        const { title, meta } = describe(r);
+        return `<li data-kind="${kind}" data-i="${i}"><div class="title">${i + 1}. ${title}</div><div class="meta">${meta}</div></li>`;
+      }).join("") + "</ol>";
+      return `<section><h2>${title}</h2>${inner}</section>`;
+    }
 
+    const describePlane = (r) => ({
+      title: `${esc(r.callsign)} <span class="meta">${esc(r.type)} · ${esc(r.reg)}</span>`,
+      meta: `${fmt(r.distance_nm, " nm", 1)} away · ${typeof r.alt_ft === "number" ? r.alt_ft.toLocaleString() + " ft" : esc(r.alt_ft)} · ${fmt(r.speed_kt, " kt")}`,
+    });
+    const describeTrain = (r) => ({
+      title: `Train ${esc(r.number)} <span class="meta">${esc(r.route)}</span>`,
+      meta: `${fmt(r.distance_mi, " mi", 1)} away · to ${esc(r.destination)} · ${fmt(r.speed_mph, " mph")}`,
+    });
+
+    $("results").addEventListener("click", (e) => {
+      const li = e.target.closest("li[data-kind]");
+      const marker = li && markers[li.dataset.kind][li.dataset.i];
+      if (!marker) return;
+      map.flyTo(marker.getLatLng(), Math.max(map.getZoom(), 10));
+      marker.openPopup();
+    });
+
+    // ---- Map rendering ----
+    function plotResults(data) {
+      layer.clearLayers();
+      const { lat, lon, label } = data.location;
+      L.circleMarker([lat, lon], { radius: 9, color: "#fff", weight: 3, fillColor: "#2563eb", fillOpacity: 1 })
+        .bindPopup(`<strong>${esc(label)}</strong>`)
+        .addTo(layer);
+
+      markers.planes = data.planes.rows.map((r) =>
+        L.marker([r.lat, r.lon], { icon: emojiIcon("✈️", (r.track ?? 45) - 45) })  // emoji points NE
+          .bindPopup(`<strong>${esc(r.callsign)}</strong><br>${describePlane(r).meta}<br>
+            <a href="https://globe.adsb.lol/?icao=${encodeURIComponent(r.hex)}" target="_blank" rel="noopener">Track on adsb.lol</a>`)
+          .addTo(layer));
+      markers.trains = data.trains.rows.map((r) =>
+        L.marker([r.lat, r.lon], { icon: emojiIcon("🚆") })
+          .bindPopup(`<strong>Train ${esc(r.number)} — ${esc(r.route)}</strong><br>${describeTrain(r).meta}`)
+          .addTo(layer));
+
+      map.flyTo([lat, lon], 10);
+    }
+
+    // ---- Search ----
     async function search(params) {
       const buttons = document.querySelectorAll("button");
       buttons.forEach((b) => (b.disabled = true));
@@ -123,11 +240,12 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
         const { lat, lon, label } = data.location;
-        $("status").innerHTML = `Showing results near <strong>${esc(label)}</strong> (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+        $("status").innerHTML = `Near <strong>${esc(label)}</strong> (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
         $("results").innerHTML =
           weatherSection(data.weather) +
-          section("✈️ Nearest aircraft", data.planes, planeCols, "No aircraft found within 250 nm.") +
-          section("🚆 Nearest Amtrak trains", data.trains, trainCols, "No active Amtrak trains found.");
+          listSection("✈️ Nearest aircraft", "planes", data.planes, describePlane, "No aircraft found within 250 nm.") +
+          listSection("🚆 Nearest Amtrak trains", "trains", data.trains, describeTrain, "No active Amtrak trains found.");
+        plotResults(data);
       } catch (err) {
         $("status").innerHTML = `<span class="error">${esc(err.message)}</span>`;
       } finally {

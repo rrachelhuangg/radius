@@ -47,6 +47,9 @@ def plane_row(ac):
         "distance_nm": round(ac["distance_nm"], 1),
         "alt_ft": ac.get("alt_baro"),
         "speed_kt": round(ac["gs"]) if ac.get("gs") is not None else None,
+        "track": ac.get("track"),
+        "lat": ac["lat"],
+        "lon": ac["lon"],
     }
 
 
@@ -57,6 +60,8 @@ def train_row(t):
         "destination": t.get("destName"),
         "distance_mi": round(t["distance_mi"], 1),
         "speed_mph": round(t["velocity"]) if t.get("velocity") is not None else None,
+        "lat": t["lat"],
+        "lon": t["lon"],
     }
 
 
