@@ -1,17 +1,15 @@
 """Flask app for Vercel: web UI + JSON API around radius.py."""
 
 import os
-import sys
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import unquote
 
 from flask import Flask, jsonify, request, send_from_directory
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
+from location import resolve
+from radius import nearest_planes, nearest_trains
 
-from location import resolve  # noqa: E402
-from radius import nearest_planes, nearest_trains  # noqa: E402
+ROOT = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(__name__)
 
