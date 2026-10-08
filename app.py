@@ -82,7 +82,7 @@ def count_arg(name, default=5):
     return max(0, min(MAX_RESULTS, n))
 
 
-def radius_arg(default=50):
+def radius_arg(default=100):
     """Search radius in miles the user asked for, clamped to 1..MAX_RADIUS_MI."""
     try:
         r = int(request.args.get("radius", default))

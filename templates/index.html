@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Radius Near You</title>
+  <title>radius.io</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📍</text></svg>">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -12,8 +12,8 @@
   <script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0/leaflet-maplibre-gl.js"></script>
   <script>
     // Set the theme before first paint so the page doesn't flash the wrong colors
-    document.documentElement.dataset.theme = localStorage.getItem("theme") ||
-      (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    // Dark by default; the user's own choice (from the switch) wins
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "dark";
   </script>
   <style>
     :root, :root[data-theme="light"] {
@@ -115,35 +115,35 @@
         <button type="button" id="theme-switch" class="switch" role="switch" aria-checked="false"></button>
     </div>
 
-    <h1>Radius</h1>
-    <p class="sub">Current weather and the nearest aircraft and Amtrak trains to any location.</p>
+    <h1>radius</h1>
+    <p class="sub">visualize the data around you.</p>
 
     <div id="account"></div>
 
     <form id="search">
-      <input id="q" name="q" placeholder="City, address, ZIP, or coordinates" autocomplete="off" aria-describedby="q-error">
+      <input id="q" name="q" placeholder="address, zip, or coordinates" autocomplete="off" aria-describedby="q-error">
       <p id="q-error" class="field-error" role="alert" hidden>You must enter a location.</p>
-      <button type="submit">Search</button>
-      <button type="button" class="secondary" id="locate">Use my location</button>
+      <button type="submit">search</button>
+      <button type="button" class="secondary" id="locate">use my location</button>
     </form>
-    <p class="hint">Try <code>Chicago</code>, <code>10001</code>, <code>40.7128, -74.0060</code>, or a Google Maps link. You can also click anywhere on the map.</p>
+    <p class="hint">try <code>chicago</code>, <code>40.7128, -74.0060</code>, or a google maps link. you can also click anywhere on the map.</p>
 
     <div class="counts">
-      <h2>Results to show</h2>
+      <h2>results to show</h2>
       <div class="count-row">
-        <label for="planes-range">✈️ Planes</label>
+        <label for="planes-range">✈️ planes</label>
         <input type="range" id="planes-range" min="0" max="50" value="5">
         <input type="number" id="planes-num" min="0" max="50" value="5" aria-label="Number of planes">
       </div>
       <div class="count-row">
-        <label for="trains-range">🚆 Trains</label>
+        <label for="trains-range">🚆 trains</label>
         <input type="range" id="trains-range" min="0" max="50" value="5">
         <input type="number" id="trains-num" min="0" max="50" value="5" aria-label="Number of trains">
       </div>
       <div class="count-row">
-        <label for="radius-range">📏 Radius</label>
-        <input type="range" id="radius-range" min="1" max="250" value="50">
-        <input type="number" id="radius-num" min="1" max="250" value="50" aria-label="Search radius in miles" title="Miles">
+        <label for="radius-range">📏 radius</label>
+        <input type="range" id="radius-range" min="1" max="250" value="100">
+        <input type="number" id="radius-num" min="1" max="250" value="100" aria-label="Search radius in miles" title="Miles">
       </div>
     </div>
 
@@ -183,10 +183,6 @@
       const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
       localStorage.setItem("theme", theme);
       applyTheme(theme);
-    });
-    // Follow the system setting until the user picks a theme themselves
-    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
-      if (!localStorage.getItem("theme")) applyTheme(e.matches ? "dark" : "light");
     });
 
     const layer = L.layerGroup().addTo(map);
@@ -300,7 +296,7 @@
       return r;
     }
 
-    setRadius(localStorage.getItem("radius") ?? 50);
+    setRadius(localStorage.getItem("radius") ?? 100);
     $("radius-range").addEventListener("input", () => {
       $("radius-num").value = $("radius-range").value;
       radiusCircle.setRadius($("radius-range").value * METERS_PER_MILE);  // live while dragging
@@ -331,15 +327,15 @@
     async function loadAccount() {
       const { enabled, user } = await fetch("/api/me").then((r) => r.json());
       if (!enabled) return ($("account").innerHTML = "");
-      if (!user) return ($("account").innerHTML = `<a class="account-signin" href="/login">Sign in with Google</a>`);
+      if (!user) return ($("account").innerHTML = `<a class="account-signin" href="/login">sign in with google</a>`);
       const since = new Date(user.created_at).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
       $("account").innerHTML = `<details class="settings account">
         <summary>${user.picture ? `<img src="${esc(user.picture)}" alt="" referrerpolicy="no-referrer">` : "👤"} ${esc(user.name || user.email)}</summary>
         <div class="body">
-          <p>${esc(user.email)}<br>Member since ${esc(since)}</p>
+          <p>${esc(user.email)}<br>member since ${esc(since)}</p>
           <div class="actions">
-            <button type="button" class="secondary" id="sign-out">Sign out</button>
-            <button type="button" class="secondary danger" id="delete-account">Delete account</button>
+            <button type="button" class="secondary" id="sign-out">sign out</button>
+            <button type="button" class="secondary danger" id="delete-account">delete account</button>
           </div>
         </div>
       </details>`;
