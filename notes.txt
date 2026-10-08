@@ -1,6 +1,7 @@
-- allow user to enter their location in multiple formats and have it all parsed to be of the required format for the apis
+- allow user to enter their location in multiple formats and have it all parsed to be of the required format for the apis = DONE
 - add the ability to add annotations and save text files (user profiles?/databases?/caching?)
 - when scrolling on phone, keep the map at the top of the screen
 - when on laptop, want plane/train-specific info to appear when the user hovers over it
 - make dark mode easier to access (no dropdown for settings) = DONE
 - default to dark mode = DONE
+- have an instruction modal thing pop up on first visit

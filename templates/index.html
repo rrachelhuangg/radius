@@ -78,6 +78,11 @@
     .leaflet-container a { color: var(--accent); }
     .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--control-bg); color: var(--fg); }
     .leaflet-container a.leaflet-popup-close-button { color: var(--muted); }
+    .leaflet-tooltip { background: var(--control-bg); color: var(--fg); border-color: var(--border); }
+    .leaflet-tooltip-top::before { border-top-color: var(--control-bg); }
+    .leaflet-tooltip.path-label { padding: 1px 5px; font-weight: 600; }
+    /* A popup moved off to the side of its marker has no tip to point with */
+    .leaflet-popup.sidestep .leaflet-popup-tip-container { display: none; }
     .leaflet-bar a, .leaflet-bar a.leaflet-disabled { background: var(--control-bg); color: var(--fg); border-bottom-color: var(--border); }
     .leaflet-bar a:hover { background: var(--control-hover); }
     .leaflet-container .leaflet-control-attribution { background: color-mix(in srgb, var(--control-bg) 80%, transparent); color: var(--muted); }
@@ -190,6 +195,128 @@
     const radiusCircle = L.circle([0, 0], { radius: 0, className: "radius-ring", weight: 2, dashArray: "2 8", lineCap: "round", fill: false, interactive: false });
     let markers = { planes: [], trains: [] };
 
+    // ---- Paths for the plane or train whose popup is open ----
+    const pathLayer = L.layerGroup().addTo(map);
+    const PATH_COLORS = { plane: "#22d3ee", train: "#fbbf24" };  // match the emoji glows
+    let pathRequest = 0;  // bumped on every open/close so a slow response can't draw a stale path
+
+    function clearPath() {
+      pathRequest++;
+      pathLayer.clearLayers();
+    }
+
+    // Points along the shortest route over the globe, which is how planes actually fly
+    function greatCircle([lat1, lon1], [lat2, lon2], steps = 64) {
+      const rad = Math.PI / 180;
+      const toXYZ = (lat, lon) => [Math.cos(lat * rad) * Math.cos(lon * rad), Math.cos(lat * rad) * Math.sin(lon * rad), Math.sin(lat * rad)];
+      const a = toXYZ(lat1, lon1), b = toXYZ(lat2, lon2);
+      const angle = Math.acos(Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
+      if (angle < 1e-6) return [[lat1, lon1], [lat2, lon2]];
+      let prevLon = lon1;
+      return Array.from({ length: steps + 1 }, (_, i) => {
+        const f = i / steps, wa = Math.sin((1 - f) * angle) / Math.sin(angle), wb = Math.sin(f * angle) / Math.sin(angle);
+        const [x, y, z] = a.map((v, k) => wa * v + wb * b[k]);
+        let lon = Math.atan2(y, x) / rad;
+        lon += 360 * Math.round((prevLon - lon) / 360);  // don't jump across the map at ±180°
+        prevLon = lon;
+        return [Math.atan2(z, Math.hypot(x, y)) / rad, lon];
+      });
+    }
+
+    async function showPlanePath(r, marker) {
+      clearPath();
+      const request = pathRequest, here = [r.lat, r.lon], color = PATH_COLORS.plane;
+      let path;
+      try {
+        const res = await fetch("/api/plane-path?" + new URLSearchParams({ hex: r.hex, callsign: r.callsign, lat: r.lat, lon: r.lon }));
+        if (!res.ok) return;
+        path = await res.json();
+      } catch {
+        return;  // paths are a nice-to-have; the popup still works
+      }
+      if (request !== pathRequest) return;
+
+      // Where it's been this flight (solid), joined up to where it is now
+      if (path.trail.length) L.polyline([...path.trail, here], { color, weight: 3, opacity: .85, interactive: false }).addTo(pathLayer);
+      // Where it's headed (dashed), plus labels on both airports
+      if (path.route) {
+        const { origin, destination } = path.route;
+        const ahead = greatCircle(here, [destination.lat, destination.lon]);
+        L.polyline(ahead, { color, weight: 2, opacity: .85, dashArray: "6 8", interactive: false }).addTo(pathLayer);
+        // Destination sits at the end of the line, which may be a world copy over if it crosses ±180°
+        for (const [a, pos] of [[origin, [origin.lat, origin.lon]], [destination, ahead.at(-1)]]) {
+          L.circleMarker(pos, { radius: 5, color, weight: 2, fillColor: "#fff", fillOpacity: 1, interactive: false })
+            .bindTooltip(esc(a.code), { permanent: true, direction: "top", offset: [0, -6], className: "path-label" })
+            .addTo(pathLayer);
+        }
+        marker.setPopupContent(planePopup(r) + `<br>${esc(origin.code)} → ${esc(destination.code)}`);
+        sidestepPopup(marker.getPopup(), planeRays(r));  // the extra line changed its size
+      }
+    }
+
+    // ---- Keeping popups off the paths ----
+    // A "ray" is the on-screen direction [x, y] a path leaves the marker in (y grows downward)
+
+    // A plane's trail and destination line both run along its heading, behind and ahead of it
+    function planeRays(r) {
+      if (r.track == null) return [];
+      const t = r.track * Math.PI / 180, ahead = [Math.sin(t), -Math.cos(t)];
+      return [ahead, [-ahead[0], -ahead[1]]];
+    }
+
+    // A train's route runs to the last stop it passed and the next one coming up
+    function trainRays(r) {
+      const here = map.latLngToLayerPoint([r.lat, r.lon]);
+      return [r.stops.filter((s) => s.passed).at(-1), r.stops.find((s) => !s.passed)]
+        .filter(Boolean)
+        .map((s) => map.latLngToLayerPoint([s.lat, s.lon]).subtract(here))
+        .map((p) => [p.x, p.y]);
+    }
+
+    // Popups sit above their marker, so only paths heading upward can be covered. Shift the popup
+    // to whichever side has no path; if both do, take the side whose path climbs least steeply and
+    // raise the popup until that path passes underneath it.
+    function sidestepPopup(popup, rays) {
+      const el = popup.getElement();
+      if (!el) return;
+      popup.options.offset = L.Popup.prototype.options.offset;
+      el.classList.remove("sidestep");
+
+      // How far each upward path drifts sideways per pixel it climbs (negative = left)
+      // (paths within about a degree of level pass under the popup, so they don't count)
+      const drifts = rays.filter(([x, y]) => y < -Math.abs(x) * .02).map(([x, y]) => x / -y);
+      if (drifts.length) {
+        const GAP = 28;  // clears the 40px emoji with a little room
+        const width = el.offsetWidth;
+        const right = Math.max(0, ...drifts.filter((d) => d > .05));
+        const left = Math.max(0, ...drifts.filter((d) => d < -.05).map((d) => -d));
+        const side = !right ? 1 : !left ? -1 : right >= left ? 1 : -1;
+        const drift = side === 1 ? right : left;
+        const lift = drift ? Math.min(200, (GAP + width) / drift) : 0;
+        popup.options.offset = [side * (GAP + width / 2), L.Popup.prototype.options.offset[1] - lift];
+        el.classList.add("sidestep");
+      }
+      popup.update();
+      popup._adjustPan?.();  // Leaflet's (internal) autopan, so a moved popup isn't left off-screen
+    }
+
+    function showTrainRoute(r) {
+      clearPath();
+      if (!r.stops.length) return;
+      const here = [r.lat, r.lon], color = PATH_COLORS.train;
+      const passed = r.stops.filter((s) => s.passed).map((s) => [s.lat, s.lon]);
+      const ahead = r.stops.filter((s) => !s.passed).map((s) => [s.lat, s.lon]);
+      // Straight lines between stations (the data has stops, not the actual track shape)
+      L.polyline([...passed, here], { color, weight: 3, opacity: .45, interactive: false }).addTo(pathLayer);
+      L.polyline([here, ...ahead], { color, weight: 3, opacity: .9, dashArray: "6 8", interactive: false }).addTo(pathLayer);
+      for (const s of r.stops) {
+        // bubblingMouseEvents: false so clicking a station doesn't start a new search at that spot
+        L.circleMarker([s.lat, s.lon], { radius: 4, color, weight: 2, opacity: s.passed ? .6 : 1, fillColor: s.passed ? color : "#fff", fillOpacity: 1, bubblingMouseEvents: false })
+          .bindTooltip(esc(s.name), { direction: "top", offset: [0, -4] })
+          .addTo(pathLayer);
+      }
+    }
+
     const emojiIcon = (emoji, kind, rotate = 0) => L.divIcon({
       className: `emoji-icon ${kind}`,
       html: `<span style="transform: rotate(${rotate}deg)">${emoji}</span>`,
@@ -254,7 +381,11 @@
     });
 
     // ---- Map rendering ----
+    const planePopup = (r) => `<strong>${esc(r.callsign)}</strong><br>${describePlane(r).meta}<br>
+      <a href="https://globe.adsb.lol/?icao=${encodeURIComponent(r.hex)}" target="_blank" rel="noopener">Track on adsb.lol</a>`;
+
     function plotResults(data) {
+      clearPath();
       layer.clearLayers();
       const { lat, lon, label } = data.location;
       radiusCircle.setLatLng([lat, lon]).setRadius(data.radius_mi * METERS_PER_MILE).addTo(map);
@@ -264,12 +395,21 @@
 
       markers.planes = data.planes.rows.map((r) =>
         L.marker([r.lat, r.lon], { icon: emojiIcon("✈️", "plane", (r.track ?? 45) - 45) })  // emoji points NE
-          .bindPopup(`<strong>${esc(r.callsign)}</strong><br>${describePlane(r).meta}<br>
-            <a href="https://globe.adsb.lol/?icao=${encodeURIComponent(r.hex)}" target="_blank" rel="noopener">Track on adsb.lol</a>`)
+          .bindPopup(planePopup(r))
+          .on("popupopen", (e) => {
+            sidestepPopup(e.popup, planeRays(r));
+            showPlanePath(r, e.target);
+          })
+          .on("popupclose", clearPath)
           .addTo(layer));
       markers.trains = data.trains.rows.map((r) =>
         L.marker([r.lat, r.lon], { icon: emojiIcon("🚆", "train") })
           .bindPopup(`<strong>Train ${esc(r.number)} — ${esc(r.route)}</strong><br>${describeTrain(r).meta}`)
+          .on("popupopen", (e) => {
+            sidestepPopup(e.popup, trainRays(r));
+            showTrainRoute(r);
+          })
+          .on("popupclose", clearPath)
           .addTo(layer));
 
       map.flyToBounds(L.latLng(lat, lon).toBounds(2 * radiusCircle.getRadius()), { padding: [20, 20] });

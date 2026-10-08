@@ -9,12 +9,20 @@ Usage:
 """
 
 import argparse
+import functools
+import gzip
 import json
 import math
+import urllib.error
 import urllib.request
+from urllib.parse import quote
 
 API_URL = "https://api.adsb.lol/v2/point/{lat}/{lon}/{radius}"
+# Track history from adsb.lol's map site (not part of their documented API, so it may change)
+TRACE_URL = "https://globe.adsb.lol/data/traces/{suffix}/trace_full_{hex}.json"
+ROUTE_URL = "https://api.adsbdb.com/v0/callsign/{callsign}"
 AMTRAK_URL = "https://api-v3.amtraker.com/v3/trains"
+STATIONS_URL = "https://api-v3.amtraker.com/v3/stations"
 WEATHER_URL = (
     "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
     "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,"
@@ -41,10 +49,16 @@ NUM_TRAINS = 5
 NM_TO_MI = 1.15078
 
 
-def fetch_json(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "radius.py"})
+def fetch_json(url, referer=None):
+    headers = {"User-Agent": "radius.py"}
+    if referer:
+        headers["Referer"] = referer
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.load(resp)
+        body = resp.read()
+        if resp.headers.get("Content-Encoding") == "gzip":  # adsb.lol serves traces pre-compressed
+            body = gzip.decompress(body)
+        return json.loads(body)
 
 
 def locate_by_ip():
@@ -90,6 +104,42 @@ def nearest_trains(lat, lon, count=NUM_TRAINS, radius_mi=None):
                 trains.append(train)
     trains.sort(key=lambda t: t["distance_mi"])
     return trains[:count]
+
+
+@functools.lru_cache(maxsize=1)
+def station_coords():
+    """{station code: (lat, lon)} for every Amtraker station; cached while the server stays up."""
+    return {s["code"]: (s["lat"], s["lon"]) for s in fetch_json(STATIONS_URL).values() if s.get("lat") is not None}
+
+
+def plane_trail(hex_code):
+    """[lat, lon] points for the aircraft's current flight leg, oldest first."""
+    data = fetch_json(TRACE_URL.format(suffix=hex_code[-2:], hex=hex_code), referer="https://globe.adsb.lol/")
+    points = data.get("trace", [])
+    # A trace covers the whole day; readsb flags (bit 2) the first point of each new flight leg
+    start = max((i for i, p in enumerate(points) if p[6] & 2), default=0)
+    return [[p[1], p[2]] for p in points[start:]]
+
+
+def flight_route(callsign, lat, lon):
+    """Origin and destination airports for a flight (adsbdb.com), or None if unknown."""
+    try:
+        data = fetch_json(ROUTE_URL.format(callsign=quote(callsign)))
+    except urllib.error.HTTPError as e:
+        if e.code == 404:  # callsign not in the database (e.g. private flights)
+            return None
+        raise
+    route = data["response"]["flightroute"]
+    origin, dest = (
+        {"code": a.get("iata_code") or a["icao_code"], "name": a["name"], "lat": a["latitude"], "lon": a["longitude"]}
+        for a in (route["origin"], route["destination"])
+    )
+    # The route database is crowdsourced and can be stale; only trust it if the plane is roughly on the way
+    direct = haversine_nm(origin["lat"], origin["lon"], dest["lat"], dest["lon"])
+    via_plane = haversine_nm(origin["lat"], origin["lon"], lat, lon) + haversine_nm(lat, lon, dest["lat"], dest["lon"])
+    if via_plane > direct * 1.25 + 50:
+        return None
+    return {"origin": origin, "destination": dest}
 
 
 def current_weather(lat, lon):

@@ -1,6 +1,7 @@
 """Flask app for Vercel: web UI + JSON API around radius.py."""
 
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import unquote
 
@@ -12,7 +13,9 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 import auth  # noqa: E402 (reads the environment at import time)
 from location import resolve
-from radius import NM_TO_MI, current_weather, nearest_planes, nearest_trains
+from radius import (
+    NM_TO_MI, current_weather, flight_route, nearest_planes, nearest_trains, plane_trail, station_coords,
+)
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 MAX_RESULTS = 50
@@ -61,7 +64,7 @@ def plane_row(ac):
     }
 
 
-def train_row(t):
+def train_row(t, coords):
     return {
         "number": t.get("trainNum"),
         "route": t.get("routeName"),
@@ -70,6 +73,11 @@ def train_row(t):
         "speed_mph": round(t["velocity"]) if t.get("velocity") is not None else None,
         "lat": t["lat"],
         "lon": t["lon"],
+        # Every stop on the run, in order, for drawing the route when the train is clicked
+        "stops": [
+            {"name": s.get("name"), "passed": s.get("status") == "Departed", "lat": c[0], "lon": c[1]}
+            for s in t.get("stations", []) if (c := coords.get(s.get("code")))
+        ],
     }
 
 
@@ -111,21 +119,54 @@ def nearby():
 
     num_planes, num_trains = count_arg("planes"), count_arg("trains")
     radius_mi = radius_arg()
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         planes = pool.submit(nearest_planes, lat, lon, num_planes, radius_mi / NM_TO_MI) if num_planes else None
         trains = pool.submit(nearest_trains, lat, lon, num_trains, radius_mi) if num_trains else None
+        stations = pool.submit(station_coords) if num_trains else None
         weather = pool.submit(current_weather, lat, lon)
         try:
             weather = {"data": weather.result(), "error": None}
         except Exception as e:
             weather = {"data": None, "error": f"Lookup failed: {e}"}
+        try:
+            coords = stations.result() if stations else {}
+        except Exception:
+            coords = {}  # trains still show, just without routes
         return jsonify(
             location={"lat": lat, "lon": lon, "label": label},
             radius_mi=radius_mi,
             weather=weather,
             planes=collect(planes, plane_row),
-            trains=collect(trains, train_row),
+            trains=collect(trains, lambda t: train_row(t, coords)),
         )
+
+
+@app.get("/api/plane-path")
+def plane_path():
+    """Where a plane has been this flight, and its origin/destination airports if known."""
+    hex_code = request.args.get("hex", "").lower()
+    callsign = request.args.get("callsign", "").strip().upper()
+    if not re.fullmatch(r"~?[0-9a-f]{6}", hex_code):
+        return jsonify(error="Invalid aircraft ID."), 400
+    try:
+        lat, lon = float(request.args["lat"]), float(request.args["lon"])
+    except (KeyError, ValueError):
+        return jsonify(error="Invalid position."), 400
+    # Planes without a flight number show their hex ID as the callsign; there's no route to look up then
+    has_callsign = re.fullmatch(r"[A-Z0-9]{2,8}", callsign) and callsign.lower() != hex_code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        trail = pool.submit(plane_trail, hex_code)
+        route = pool.submit(flight_route, callsign, lat, lon) if has_callsign else None
+        try:
+            trail = trail.result()
+        except Exception:
+            trail = []  # no history for this plane (e.g. it just appeared)
+        try:
+            route = route.result() if route else None
+        except Exception:
+            route = None
+    return jsonify(trail=trail, route=route)
 
 
 if __name__ == "__main__":
