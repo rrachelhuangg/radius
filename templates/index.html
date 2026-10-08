@@ -110,18 +110,15 @@
 </head>
 <body>
   <aside>
+    <div class="row" style="margin-bottom: 1rem; display: flex; justify-content: flex-end;">
+        <label for="theme-switch"></label>
+        <button type="button" id="theme-switch" class="switch" role="switch" aria-checked="false"></button>
+    </div>
+
     <h1>Radius</h1>
     <p class="sub">Current weather and the nearest aircraft and Amtrak trains to any location.</p>
 
     <div id="account"></div>
-
-    <details class="settings">
-      <summary>⚙️ Settings</summary>
-      <div class="row">
-        <label for="theme-switch">🌙 Dark mode</label>
-        <button type="button" id="theme-switch" class="switch" role="switch" aria-checked="false"></button>
-      </div>
-    </details>
 
     <form id="search">
       <input id="q" name="q" placeholder="City, address, ZIP, or coordinates" autocomplete="off" aria-describedby="q-error">
