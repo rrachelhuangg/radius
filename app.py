@@ -4,9 +4,13 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import unquote
 
+from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_from_directory
 
-import auth
+# Local dev reads settings from .env; on Vercel they come from the project's environment variables
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+
+import auth  # noqa: E402 (reads the environment at import time)
 from location import resolve
 from radius import NM_TO_MI, current_weather, nearest_planes, nearest_trains
 

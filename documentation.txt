@@ -1,0 +1,11 @@
+Documentation for connecting deployed Flask/Vercel app to Neon Postgres database:
+1. Set up database in Vercel by going to Vercel project --> Storage --> Create --> (Neon Postgres) and connect it to the project
+  * This sets DATABASE_URL
+2. Setup Google keys by going to Google Cloud Console --> Apis & Services --> set up the OAuth consent Screen --> Create Credentials --> OAuth client ID of type "Web app"
+  * Enter the relevant redirect URIs: https://<your-vercel-domain>/auth/callback + http://localhost:5001/auth/callback
+3. Add the environment variables to Vercel with these cmd commands:
+! vercel env add GOOGLE_CLIENT_ID production
+! vercel env add GOOGLE_CLIENT_SECRET production
+! vercel env add SECRET_KEY production
+! vercel --prod
+4. Important environment variables for local development --> /Users/rachelhuang/radius/.env
