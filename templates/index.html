@@ -61,6 +61,14 @@
     .settings { margin: 0 0 1rem; border: 1px solid var(--border); border-radius: 10px; }
     .settings summary { padding: .5rem .75rem; cursor: pointer; font-size: .9rem; font-weight: 500; user-select: none; }
     .settings .row { display: flex; align-items: center; justify-content: space-between; padding: .5rem .75rem .75rem; font-size: .9rem; }
+    .account-signin { display: block; margin: 0 0 1rem; padding: .55rem .8rem; border: 1px solid var(--border); border-radius: 8px; text-align: center; text-decoration: none; font-size: .95rem; font-weight: 500; }
+    .account-signin:hover { background: var(--hover); }
+    .account summary { display: flex; align-items: center; gap: .5rem; }
+    .account summary img { width: 22px; height: 22px; border-radius: 50%; }
+    .account .body { padding: 0 .75rem .75rem; font-size: .9rem; }
+    .account .body p { margin: 0 0 .6rem; color: var(--muted); }
+    .account .actions { display: flex; gap: .5rem; }
+    .account .danger { color: var(--error); border-color: var(--error); }
     .switch { flex: none; position: relative; width: 44px; height: 24px; padding: 0; border-radius: 999px; background: var(--switch-off); transition: background .2s; }
     .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .2s; }
     .switch[aria-checked="true"] { background: var(--accent); }
@@ -104,6 +112,8 @@
   <aside>
     <h1>Radius</h1>
     <p class="sub">Current weather and the nearest aircraft and Amtrak trains to any location.</p>
+
+    <div id="account"></div>
 
     <details class="settings">
       <summary>⚙️ Settings</summary>
@@ -318,6 +328,41 @@
           if (lastParams) search(lastParams);
         });
       }
+    }
+
+    // ---- Account ----
+    async function loadAccount() {
+      const { enabled, user } = await fetch("/api/me").then((r) => r.json());
+      if (!enabled) return ($("account").innerHTML = "");
+      if (!user) return ($("account").innerHTML = `<a class="account-signin" href="/login">Sign in with Google</a>`);
+      const since = new Date(user.created_at).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+      $("account").innerHTML = `<details class="settings account">
+        <summary>${user.picture ? `<img src="${esc(user.picture)}" alt="" referrerpolicy="no-referrer">` : "👤"} ${esc(user.name || user.email)}</summary>
+        <div class="body">
+          <p>${esc(user.email)}<br>Member since ${esc(since)}</p>
+          <div class="actions">
+            <button type="button" class="secondary" id="sign-out">Sign out</button>
+            <button type="button" class="secondary danger" id="delete-account">Delete account</button>
+          </div>
+        </div>
+      </details>`;
+      $("sign-out").addEventListener("click", async () => {
+        await fetch("/logout", { method: "POST" });
+        loadAccount();
+      });
+      $("delete-account").addEventListener("click", async () => {
+        if (!confirm("Delete your Radius account? This can't be undone.")) return;
+        await fetch("/api/me", { method: "DELETE" });
+        loadAccount();
+      });
+    }
+    loadAccount().catch(() => ($("account").innerHTML = ""));
+
+    // Errors from the Google sign-in redirect come back in the URL
+    const authError = new URLSearchParams(location.search).get("auth_error");
+    if (authError) {
+      $("status").innerHTML = `<span class="error">${esc(authError)}</span>`;
+      history.replaceState(null, "", "/");
     }
 
     // ---- Search ----

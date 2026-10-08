@@ -6,6 +6,7 @@ from urllib.parse import unquote
 
 from flask import Flask, jsonify, request, send_from_directory
 
+import auth
 from location import resolve
 from radius import NM_TO_MI, current_weather, nearest_planes, nearest_trains
 
@@ -14,6 +15,7 @@ MAX_RESULTS = 50
 MAX_RADIUS_MI = 250
 
 app = Flask(__name__)
+auth.init_app(app)
 
 
 @app.get("/")
