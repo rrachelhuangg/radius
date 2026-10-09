@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>radius.io</title>
+  <title>radiuspinio.dev</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📍</text></svg>">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -134,9 +134,12 @@
     }
     a { color: var(--accent); }
     @media (max-width: 800px) {
-      body { grid-template-columns: 1fr; grid-template-rows: 50vh auto; height: auto; }
-      #map { order: -1; height: 50vh; }
-      aside { border-right: 0; }
+      /* Flex instead of grid here: a sticky grid item can't leave its own row, so the map wouldn't stay put */
+      body { display: flex; flex-direction: column; height: auto; }
+      /* The map stays pinned to the top while the sidebar scrolls underneath it.
+         svh = height with the browser's toolbars showing, so the map doesn't resize as they slide away */
+      #map { order: -1; position: sticky; top: 0; z-index: 1000; flex: none; height: 50vh; height: 50svh; border-bottom: 1px solid var(--border); }
+      aside { border-right: 0; overflow-y: visible; }
     }
   </style>
 </head>
