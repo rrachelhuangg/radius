@@ -459,7 +459,7 @@
     // Red glow on the selected plane or train (the element is gone if the marker was just removed)
     const setActive = (marker, on) => marker.getElement()?.classList.toggle("active", on);
 
-    const planePopup = (r) => `<strong>${esc(r.callsign)}</strong><br>${describePlane(r).meta}<br>
+    const planePopup = (r) => `<strong>${esc(r.callsign)}</strong>${r.kind ? ` · ${esc(r.kind)}` : ""}<br>${describePlane(r).meta}<br>
       <a href="https://globe.adsb.lol/?icao=${encodeURIComponent(r.hex)}" target="_blank" rel="noopener">Track on adsb.lol</a>`;
 
     function plotResults(data) {

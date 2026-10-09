@@ -49,9 +49,24 @@ def find_location():
     raise ValueError("Enter a location to search.")
 
 
+def plane_kind(ac):
+    """Best guess at who's flying: "Military", "Commercial" (airline/cargo), "Private", or None if unknown."""
+    if ac.get("dbFlags", 0) & 1:  # adsb.lol's database flags known military aircraft
+        return "Military"
+    flight = (ac.get("flight") or "").strip()
+    if not flight:
+        return None
+    # Airlines fly under their 3-letter ICAO code plus a flight number (AAL123, UPS5606);
+    # private planes usually just broadcast their registration (N12345)
+    if re.fullmatch(r"[A-Z]{3}\d{1,4}[A-Z]{0,2}", flight) and flight != (ac.get("r") or "").replace("-", ""):
+        return "Commercial"
+    return "Private"
+
+
 def plane_row(ac):
     return {
         "callsign": (ac.get("flight") or "").strip() or ac.get("hex", "?"),
+        "kind": plane_kind(ac),
         "hex": ac.get("hex"),
         "reg": ac.get("r"),
         "type": ac.get("t"),
