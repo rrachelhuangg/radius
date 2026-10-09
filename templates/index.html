@@ -208,7 +208,77 @@
     function clearPath() {
       pathRequest++;
       pathLayer.clearLayers();
+      arrowPaths = [];
+      arrowLayer.clearLayers();
     }
+
+    // Draws a path line (points in the order the vehicle travels) with direction arrows along it
+    function addPath(points, style) {
+      L.polyline(points, { ...style, interactive: false }).addTo(pathLayer);
+      arrowPaths.push({ points, color: style.color, opacity: style.opacity });
+      drawArrows();
+    }
+
+    // ---- Direction arrows ----
+    // Spaced in screen pixels, so they're redrawn whenever the map moves or zooms, and only the
+    // ones on screen are drawn (a long route zoomed in would otherwise need thousands)
+    const arrowLayer = L.layerGroup().addTo(map);
+    let arrowPaths = [];
+    const ARROW_SPACING = 90, ARROW_MARGIN = 20;
+
+    const arrowIcon = (color, angle) => L.divIcon({
+      className: "path-arrow",
+      // A caret in the path's color with a background-colored outline so it shows up on top of the line
+      html: `<svg width="12" height="12" viewBox="0 0 12 12" style="display: block; transform: rotate(${angle}deg)">
+        <path d="M4 2 8 6 4 10" fill="none" style="stroke: var(--bg)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M4 2 8 6 4 10" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`,
+      iconSize: [12, 12],
+      iconAnchor: [6, 6],
+    });
+
+    // The fraction [t0, t1] of segment a→b that's on screen (plus a margin), or null if none of it is
+    function visibleRange(a, b, size) {
+      let t0 = 0, t1 = 1;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const edges = [[-dx, a.x + ARROW_MARGIN], [dx, size.x + ARROW_MARGIN - a.x], [-dy, a.y + ARROW_MARGIN], [dy, size.y + ARROW_MARGIN - a.y]];
+      for (const [p, q] of edges) {
+        if (p === 0) {
+          if (q < 0) return null;
+          continue;
+        }
+        if (p < 0) t0 = Math.max(t0, q / p);
+        else t1 = Math.min(t1, q / p);
+        if (t0 > t1) return null;
+      }
+      return [t0, t1];
+    }
+
+    function drawArrows() {
+      arrowLayer.clearLayers();
+      const size = map.getSize();
+      for (const { points, color, opacity } of arrowPaths) {
+        const pts = points.map((p) => map.latLngToContainerPoint(p));
+        let travelled = 0;  // arrows sit at ARROW_SPACING/2, 1.5×, 2.5×… along the whole path
+        for (let i = 1; i < pts.length; i++) {
+          const a = pts[i - 1], b = pts[i], len = a.distanceTo(b);
+          const range = len && visibleRange(a, b, size);
+          if (range) {
+            const angle = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+            const first = Math.ceil((travelled + range[0] * len - ARROW_SPACING / 2) / ARROW_SPACING);
+            const last = Math.floor((travelled + range[1] * len - ARROW_SPACING / 2) / ARROW_SPACING);
+            for (let k = Math.max(0, first); k <= last; k++) {
+              const t = (k * ARROW_SPACING + ARROW_SPACING / 2 - travelled) / len;
+              const at = map.containerPointToLatLng(a.add(b.subtract(a).multiplyBy(t)));
+              L.marker(at, { icon: arrowIcon(color, angle), opacity, interactive: false, keyboard: false, zIndexOffset: -1000 })
+                .addTo(arrowLayer);
+            }
+          }
+          travelled += len;
+        }
+      }
+    }
+    map.on("moveend", drawArrows);
 
     // Points along the shortest route over the globe, which is how planes actually fly
     function greatCircle([lat1, lon1], [lat2, lon2], steps = 64) {
@@ -242,12 +312,12 @@
       if (request !== pathRequest) return;
 
       // Where it's been this flight (solid), joined up to where it is now
-      if (path.trail.length) L.polyline([...path.trail, here], { color, weight: 3, opacity: .85, interactive: false }).addTo(pathLayer);
+      if (path.trail.length) addPath([...path.trail, here], { color, weight: 3, opacity: .85 });
       // Where it's headed (dashed), plus labels on both airports
       if (path.route) {
         const { origin, destination } = path.route;
         const ahead = greatCircle(here, [destination.lat, destination.lon]);
-        L.polyline(ahead, { color, weight: 2, opacity: .85, dashArray: "6 8", interactive: false }).addTo(pathLayer);
+        addPath(ahead, { color, weight: 2, opacity: .85, dashArray: "6 8" });
         // Destination sits at the end of the line, which may be a world copy over if it crosses ±180°
         for (const [a, pos] of [[origin, [origin.lat, origin.lon]], [destination, ahead.at(-1)]]) {
           L.circleMarker(pos, { radius: 5, color, weight: 2, fillColor: "#fff", fillOpacity: 1, interactive: false })
@@ -312,8 +382,8 @@
       const passed = r.stops.filter((s) => s.passed).map((s) => [s.lat, s.lon]);
       const ahead = r.stops.filter((s) => !s.passed).map((s) => [s.lat, s.lon]);
       // Straight lines between stations (the data has stops, not the actual track shape)
-      L.polyline([...passed, here], { color, weight: 3, opacity: .45, interactive: false }).addTo(pathLayer);
-      L.polyline([here, ...ahead], { color, weight: 3, opacity: .9, dashArray: "6 8", interactive: false }).addTo(pathLayer);
+      addPath([...passed, here], { color, weight: 3, opacity: .45 });
+      addPath([here, ...ahead], { color, weight: 3, opacity: .9, dashArray: "6 8" });
       for (const s of r.stops) {
         // bubblingMouseEvents: false so clicking a station doesn't start a new search at that spot
         L.circleMarker([s.lat, s.lon], { radius: 4, color, weight: 2, opacity: s.passed ? .6 : 1, fillColor: s.passed ? color : "#fff", fillOpacity: 1, bubblingMouseEvents: false })
