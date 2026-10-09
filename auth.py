@@ -23,17 +23,29 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
 ENABLED = all([DATABASE_URL, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, os.environ.get("SECRET_KEY")])
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-    id            SERIAL PRIMARY KEY,
-    google_sub    TEXT UNIQUE NOT NULL,  -- Google's stable account ID
-    email         TEXT NOT NULL,
-    name          TEXT,
-    picture       TEXT,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_login_at TIMESTAMPTZ NOT NULL DEFAULT now()
+SCHEMA = (
+    """CREATE TABLE IF NOT EXISTS users (
+        id            SERIAL PRIMARY KEY,
+        google_sub    TEXT UNIQUE NOT NULL,  -- Google's stable account ID
+        email         TEXT NOT NULL,
+        name          TEXT,
+        picture       TEXT,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_login_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    # Map pins, each with one sticky note (see pins.py); deleted along with their user
+    """CREATE TABLE IF NOT EXISTS pins (
+        id         SERIAL PRIMARY KEY,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        lat        DOUBLE PRECISION NOT NULL,
+        lon        DOUBLE PRECISION NOT NULL,
+        label      TEXT NOT NULL,
+        note       TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS pins_user_id ON pins (user_id)",
 )
-"""
 
 bp = Blueprint("auth", __name__)
 oauth = OAuth()
@@ -66,7 +78,8 @@ def db():
     global _schema_ready
     conn = psycopg.connect(DATABASE_URL, row_factory=dict_row, autocommit=True)
     if not _schema_ready:
-        conn.execute(SCHEMA)
+        for statement in SCHEMA:
+            conn.execute(statement)
         _schema_ready = True
     return conn
 

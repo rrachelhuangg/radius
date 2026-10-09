@@ -12,6 +12,7 @@ from flask import Flask, jsonify, request, send_from_directory
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 import auth  # noqa: E402 (reads the environment at import time)
+import pins
 from location import resolve
 from radius import (
     NM_TO_MI, current_weather, flight_route, nearest_planes, nearest_trains, plane_trail, station_coords,
@@ -23,6 +24,7 @@ MAX_RADIUS_MI = 250
 
 app = Flask(__name__)
 auth.init_app(app)
+app.register_blueprint(pins.bp)
 
 
 @app.get("/")
