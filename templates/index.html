@@ -97,6 +97,7 @@
     .weather dd { margin: 0; font-size: .9rem; font-variant-numeric: tabular-nums; }
     .emoji-icon { --glow: #22d3ee; }
     .emoji-icon.train { --glow: #fbbf24; }
+    .emoji-icon.active { --glow: #ef4444; }  /* the plane or train whose popup is open */
     .emoji-icon span {
       display: block; font-size: 30px; line-height: 40px; text-align: center;
       filter: drop-shadow(0 0 1px var(--glow)) drop-shadow(0 0 4px var(--glow)) drop-shadow(0 0 10px var(--glow));
@@ -104,6 +105,10 @@
     /* Markers already stand out on the dark map, so tone the glow down */
     [data-theme="dark"] .emoji-icon span {
       filter: drop-shadow(0 0 1px var(--glow)) drop-shadow(0 0 5px color-mix(in srgb, var(--glow) 60%, transparent));
+    }
+    /* ...except the selected one, which gets a slightly wider red glow */
+    [data-theme="dark"] .emoji-icon.active span {
+      filter: drop-shadow(0 0 1px var(--glow)) drop-shadow(0 0 7px color-mix(in srgb, var(--glow) 70%, transparent));
     }
     a { color: var(--accent); }
     @media (max-width: 800px) {
@@ -381,6 +386,9 @@
     });
 
     // ---- Map rendering ----
+    // Red glow on the selected plane or train (the element is gone if the marker was just removed)
+    const setActive = (marker, on) => marker.getElement()?.classList.toggle("active", on);
+
     const planePopup = (r) => `<strong>${esc(r.callsign)}</strong><br>${describePlane(r).meta}<br>
       <a href="https://globe.adsb.lol/?icao=${encodeURIComponent(r.hex)}" target="_blank" rel="noopener">Track on adsb.lol</a>`;
 
@@ -397,19 +405,27 @@
         L.marker([r.lat, r.lon], { icon: emojiIcon("✈️", "plane", (r.track ?? 45) - 45) })  // emoji points NE
           .bindPopup(planePopup(r))
           .on("popupopen", (e) => {
+            setActive(e.target, true);
             sidestepPopup(e.popup, planeRays(r));
             showPlanePath(r, e.target);
           })
-          .on("popupclose", clearPath)
+          .on("popupclose", (e) => {
+            setActive(e.target, false);
+            clearPath();
+          })
           .addTo(layer));
       markers.trains = data.trains.rows.map((r) =>
         L.marker([r.lat, r.lon], { icon: emojiIcon("🚆", "train") })
           .bindPopup(`<strong>Train ${esc(r.number)} — ${esc(r.route)}</strong><br>${describeTrain(r).meta}`)
           .on("popupopen", (e) => {
+            setActive(e.target, true);
             sidestepPopup(e.popup, trainRays(r));
             showTrainRoute(r);
           })
-          .on("popupclose", clearPath)
+          .on("popupclose", (e) => {
+            setActive(e.target, false);
+            clearPath();
+          })
           .addTo(layer));
 
       map.flyToBounds(L.latLng(lat, lon).toBounds(2 * radiusCircle.getRadius()), { padding: [20, 20] });
