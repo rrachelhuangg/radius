@@ -104,6 +104,17 @@
     #pins-list .pin-item:hover { background: var(--hover); }
     .pin-item .label { font-weight: 600; }
     .pin-item .note { color: var(--muted); font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* First-visit welcome modal (the browser centers <dialog> and dims the page behind it) */
+    #intro { width: min(440px, calc(100vw - 2rem)); padding: 0; border: 1px solid var(--border); border-radius: 14px; background: var(--bg); color: var(--fg); box-shadow: 0 20px 50px #0006; }
+    #intro::backdrop { background: #0f172a99; }
+    /* Padding lives on the form so any click on the dialog element itself is outside the box */
+    #intro form { display: block; padding: 1.25rem 1.4rem; }
+    #intro h2 { margin: 0 0 .2rem; font-size: 1.2rem; }
+    #intro .intro-sub { margin: 0 0 .9rem; color: var(--muted); font-size: .9rem; }
+    #intro ul { margin: 0 0 1.1rem; padding: 0; list-style: none; display: grid; gap: .6rem; font-size: .9rem; }
+    #intro li { padding: 0; cursor: auto; }
+    #intro li:hover { background: none; }
+    #intro button { width: 100%; }
     .link-btn { flex: none; padding: 0; font-size: inherit; background: none; color: var(--accent); text-decoration: underline; }
     .leaflet-bar a, .leaflet-bar a.leaflet-disabled { background: var(--control-bg); color: var(--fg); border-bottom-color: var(--border); }
     .leaflet-bar a:hover { background: var(--control-hover); }
@@ -191,6 +202,22 @@
     <div id="results"></div>
   </aside>
   <div id="map"></div>
+
+  <!-- Welcome / how-to, shown once on a visitor's first visit -->
+  <dialog id="intro" aria-labelledby="intro-title">
+    <form method="dialog">
+      <h2 id="intro-title">📍 radius </h2>
+      <p class="intro-sub">visualize the data around any input location.</p>
+      <ul>
+        <li>🔎 <strong>search</strong> a city, address, zip, or coordinates, tap <strong>use my location</strong>, or click anywhere on the map.</li>
+        <li>🎚️ use the <strong>sliders</strong> to choose how many planes and trains to show, and how far to look.</li>
+        <li>✈️ <strong>click a plane or train</strong> to see its details and its path. the little arrows show which way it's heading.</li>
+        <li>📌 <strong>sign in with google</strong> to drop pins with sticky notes: right-click the map (long-press on a phone) or use "pin this location" after a search.</li>
+        <li>🌙 switch <strong>dark mode</strong> on or off in the top-right corner.</li>
+      </ul>
+      <button autofocus>okay</button>
+    </form>
+  </dialog>
 
   <script>
     const $ = (id) => document.getElementById(id);
@@ -740,6 +767,14 @@
     map.on("contextmenu", (e) => {
       const { lat, lng } = e.latlng.wrap();
       addPin(lat, lng, `${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+    });
+
+    // ---- First-visit welcome ----
+    if (!localStorage.getItem("seen-intro")) $("intro").showModal();
+    // Closing it any way (button, Esc, or a click outside it) counts as seen
+    $("intro").addEventListener("close", () => localStorage.setItem("seen-intro", "true"));
+    $("intro").addEventListener("click", (e) => {
+      if (e.target === $("intro")) $("intro").close();  // the click landed on the dimmed area, not the box
     });
 
     // ---- Account ----

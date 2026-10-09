@@ -4,6 +4,6 @@
 - when on laptop, want plane/train-specific info to appear when the user hovers over it
 - make dark mode easier to access (no dropdown for settings) = DONE
 - default to dark mode = DONE
-- have an instruction modal thing pop up on first visit
+- have an instruction modal thing pop up on first visit = DONE
 - add little arrows on the paths to clarify which direction the plane/train is moving in = DONE
 - say if a plane is commercial or private in its little info box = DONE
